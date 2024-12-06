@@ -1,38 +1,41 @@
 /*
-    Wildfire's Female Gender Mod is a female gender mod created for Minecraft.
-    Copyright (C) 2023 WildfireRomeo
-
-    This program is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 3 of the License, or (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Lesser General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
-*/
+ * Wildfire's Female Gender Mod is a female gender mod created for Minecraft.
+ * Copyright (C) 2023-present WildfireRomeo
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 3 of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 
 package com.wildfire.gui;
 
 import com.mojang.blaze3d.systems.RenderSystem;
-import com.wildfire.main.WildfireHelper;
 import com.wildfire.main.config.FloatConfigKey;
 import it.unimi.dsi.fastutil.floats.Float2ObjectFunction;
 import it.unimi.dsi.fastutil.floats.FloatConsumer;
+import net.fabricmc.api.EnvType;
+import net.fabricmc.api.Environment;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
+import net.minecraft.client.gui.screen.narration.NarrationPart;
 import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.MathHelper;
 import org.lwjgl.glfw.GLFW;
 
+@Environment(EnvType.CLIENT)
 public class WildfireSlider extends ClickableWidget {
 	private double value;
 	private final double minValue;
@@ -43,6 +46,8 @@ public class WildfireSlider extends ClickableWidget {
 
 	private float lastValue;
 	private boolean changed;
+
+	private double arrowKeyStep = 0.05;
 
 	public WildfireSlider(int xPos, int yPos, int width, int height, FloatConfigKey config, double currentVal, FloatConsumer valueUpdate,
 	                      Float2ObjectFunction<Text> messageUpdate, FloatConsumer onSave) {
@@ -58,6 +63,10 @@ public class WildfireSlider extends ClickableWidget {
 		this.messageUpdate = messageUpdate;
 		this.onSave = onSave;
 		setValueInternal(currentVal);
+	}
+
+	public void setArrowKeyStep(double arrowKeyStep) {
+		this.arrowKeyStep = arrowKeyStep;
 	}
 
 	protected void updateMessage() {
@@ -86,12 +95,29 @@ public class WildfireSlider extends ClickableWidget {
 	}
 
 	@Override
+	public void onClick(double mouseX, double mouseY) {
+		this.setValueFromMouse(mouseX);
+	}
+
+	@Override
 	public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-		boolean result = super.keyPressed(keyCode, scanCode, modifiers);
-		if (keyCode == GLFW.GLFW_KEY_LEFT || keyCode == GLFW.GLFW_KEY_RIGHT) {
-			save();
+		if(keyCode == GLFW.GLFW_KEY_LEFT || keyCode == GLFW.GLFW_KEY_RIGHT) {
+			value += (keyCode == GLFW.GLFW_KEY_LEFT ? -arrowKeyStep : arrowKeyStep);
+			value = MathHelper.clamp(value, 0, 1);
+			applyValue();
+			updateMessage();
+			return true;
 		}
-		return result;
+		return super.keyPressed(keyCode, scanCode, modifiers);
+	}
+
+	@Override
+	public boolean keyReleased(int keyCode, int scanCode, int modifiers) {
+		if(keyCode == GLFW.GLFW_KEY_LEFT || keyCode == GLFW.GLFW_KEY_RIGHT) {
+			save();
+			return true;
+		}
+		return super.keyReleased(keyCode, scanCode, modifiers);
 	}
 
 	protected MutableText getNarrationMessage() {
@@ -99,21 +125,30 @@ public class WildfireSlider extends ClickableWidget {
 	}
 
 	@Override
-	public void renderButton(DrawContext ctx, int mouseX, int mouseY, float delta) {
+	protected void renderWidget(DrawContext ctx, int mouseX, int mouseY, float delta) {
 		if (this.visible) {
 			RenderSystem.disableDepthTest();
-			this.hovered = mouseX >= this.getX() && mouseY >= this.getY() && mouseX < this.getX() + this.width && mouseY < this.getY() + this.height;
 
 			int xP = getX() + 2;
-			ctx.fill(xP - 2, getY(), getX() + this.width - 1, getY() + this.height, 0x222222 + (128 << 24));
+			ctx.fill(xP - 2, getY(), getX() + this.width, getY() + this.height, 0x222222 + (128 << 24));
 			int xPos = getX() + 2 + (int) (this.value * (float)(this.width - 3));
-			ctx.fill(getX() + 1, getY() + 1, xPos - 1, getY() + this.height - 1, 0x222266 + (180 << 24));
 
-			int xPos2 = this.getX() + 3 + (int) (this.value * (float)(this.width - 5));
-			ctx.fill(xPos2 - 2, getY() + 1, xPos2, getY() + this.height - 1, 0xFFFFFF + (120 << 24));
+			ctx.fill(getX() + 1, getY() + 1, xPos - 1, getY() + this.height - 1, active?(0x222266 + (180 << 24)):(0x111133 + (180 << 24)));
+
+			if(active) {
+				int xPos2 = this.getX() + 3 + (int) (this.value * (float) (this.width - 4));
+				ctx.fill(xPos2 - 2, getY() + 1, xPos2, getY() + this.height - 1, 0xFFFFFF + (120 << 24));
+			}
 			RenderSystem.enableDepthTest();
 			TextRenderer font = MinecraftClient.getInstance().textRenderer;
-			WildfireHelper.drawCenteredText(ctx, font, getMessage(), this.getX() + this.width / 2, this.getY() + (this.height - 8) / 2, this.hovered || changed ? 0xFFFF55 : 0xFFFFFF);
+			int i = this.getX() + 2;
+			int j = this.getX() + this.getWidth() - 2;
+
+			int textColor = (isSelected()&&active) || changed ? 0xFFFF55 : 0xFFFFFF;
+			if(!active) {
+				textColor = 0x666666;
+			}
+			GuiUtils.drawScrollableTextWithoutShadow(GuiUtils.Justify.CENTER, ctx, font, this.getMessage(), i, this.getY(), j, this.getY() + this.getHeight(), textColor);
 		}
 	}
 
@@ -139,21 +174,23 @@ public class WildfireSlider extends ClickableWidget {
 
 	protected void onDrag(double mouseX, double mouseY, double deltaX, double deltaY) {
 		this.setValueFromMouse(mouseX);
-		super.onDrag(mouseX, mouseY, deltaX, deltaY);
 	}
 
 	@Override
-	public void appendClickableNarrations(NarrationMessageBuilder builder) {}
+	public void appendClickableNarrations(NarrationMessageBuilder builder) {
+		builder.put(NarrationPart.TITLE, Text.translatable("gui.narrate.slider", this.getMessage()));
+		if(active) {
+			if(isFocused()) {
+				builder.put(NarrationPart.USAGE, Text.translatable("narration.slider.usage.focused"));
+			} else {
+				builder.put(NarrationPart.USAGE, Text.translatable("narration.slider.usage.hovered"));
+			}
+		}
+	}
 
 	private void setValueFromMouse(double mouseX) {
 		this.value = ((mouseX - (double)(this.getX() + 4)) / (double)(this.getWidth() - 8));
-		if (this.value < 0.0F) {
-			this.value = 0.0F;
-		}
-
-		if (this.value > 1.0F) {
-			this.value = 1.0F;
-		}
+		this.value = MathHelper.clamp(this.value, 0, 1);
 		applyValue();
 		updateMessage();
 	}

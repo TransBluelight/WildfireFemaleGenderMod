@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "wildfire_gender",
-  "version": "1.20-3.0.1",
+  "version": "${version}+${minecraft_version}",
   "name": "Wildfire's Female Gender Mod",
   "description": "Allows players to choose what gender they want to be.",
   "authors": [
@@ -10,12 +10,15 @@
   "contributors": [
     "Archl",
     "Arcti_cc",
+    "BluelightAmelia",
     "celeste",
     "diademiemi",
     "IzzyBizzy45",
     "Kichura",
+    "PinguinLars",
     "Powerless001",
-    "pupnewfster"
+    "pupnewfster",
+    "RacoonDog"
   ],
   "contact": {
     "homepage": "https://www.curseforge.com/minecraft/mc-mods/female-gender-fabric",
@@ -27,27 +30,37 @@
   "environment": "*",
   "entrypoints": {
     "main": [
-      "com.wildfire.main.WildfireGenderServer"
+      "com.wildfire.main.WildfireGender"
     ],
     "client": [
-      "com.wildfire.main.WildfireGender"
+      "com.wildfire.main.WildfireGenderClient"
     ]
   },
   "mixins": [
     "wildfire_gender.mixins.json"
   ],
+  "accessWidener": "wildfire_gender.accesswidener",
   "depends": {
-    "fabricloader": ">=0.14.21",
-    "fabric-api": ">=0.83.0",
-    "minecraft": "~1.20",
-    "java": ">=17"
+    "fabricloader": ">=0.15.0",
+    "fabric-networking-api-v1": "*",
+    "fabric-key-binding-api-v1": "*",
+    "fabric-lifecycle-events-v1": "*",
+    "fabric-rendering-v1": "*",
+    "fabric-resource-loader-v0": "*",
+    "fabric-registry-sync-v0": "*",
+    "minecraft": ">=1.21.4 <1.22",
+    "java": ">=21"
   },
   "conflicts": {
     "skinlayers": "*",
-    "gender": "*"
+    "essential": "*",
+    "essential-loader": "*"
   },
-  "suggests": {
-    "mermod": ">=2.3",
-    "trinkets": ">=3.6.0"
+  "custom": {
+    "modmenu": {
+      "links": {
+        "modmenu.discord": "https://discord.gg/4VDfQu4Wgb"
+      }
+    }
   }
 }

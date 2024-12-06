@@ -1,183 +1,351 @@
 /*
-    Wildfire's Female Gender Mod is a female gender mod created for Minecraft.
-    Copyright (C) 2023 WildfireRomeo
-
-    This program is free software; you can redistribute it and/or
-    modify it under the terms of the GNU Lesser General Public
-    License as published by the Free Software Foundation; either
-    version 3 of the License, or (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-    Lesser General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
-*/
+ * Wildfire's Female Gender Mod is a female gender mod created for Minecraft.
+ * Copyright (C) 2023-present WildfireRomeo
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 3 of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 
 package com.wildfire.main;
 
-import com.wildfire.gui.screen.WildfirePlayerListScreen;
-import com.wildfire.main.networking.PacketSendGenderInfo;
-import com.wildfire.main.networking.PacketSync;
-
-import java.util.Random;
-import java.util.Set;
-import java.util.UUID;
-
+import com.wildfire.events.ArmorStandInteractEvents;
+import com.wildfire.events.ArmorStatsTooltipEvent;
+import com.wildfire.events.EntityHurtSoundEvent;
+import com.wildfire.events.EntityTickEvent;
+import com.wildfire.gui.GuiUtils;
+import com.wildfire.gui.screen.WardrobeBrowserScreen;
+import com.wildfire.gui.screen.WildfireFirstTimeSetupScreen;
+import com.wildfire.main.cloud.CloudSync;
+import com.wildfire.main.config.GlobalConfig;
+import com.wildfire.main.entitydata.BreastDataComponent;
+import com.wildfire.main.entitydata.EntityConfig;
+import com.wildfire.main.entitydata.PlayerConfig;
+import com.wildfire.main.networking.ServerboundSyncPacket;
+import com.wildfire.main.networking.WildfireSync;
+import com.wildfire.render.GenderArmorLayer;
+import com.wildfire.render.GenderLayer;
+import net.fabricmc.api.EnvType;
+import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientEntityEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
+import net.fabricmc.fabric.api.client.rendering.v1.LivingEntityFeatureRendererRegistrationCallback;
+import net.fabricmc.fabric.api.networking.v1.EntityTrackingEvents;
+import net.fabricmc.fabric.api.networking.v1.PacketSender;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.AbstractClientPlayerEntity;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.network.ClientPlayNetworkHandler;
+import net.minecraft.client.network.ClientPlayerEntity;
+import net.minecraft.client.network.PlayerListEntry;
 import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.sound.EntityTrackingSoundInstance;
-import net.minecraft.client.util.InputUtil;
+import net.minecraft.client.render.RenderTickCounter;
+import net.minecraft.client.render.entity.ArmorStandEntityRenderer;
+import net.minecraft.client.render.entity.EntityRendererFactory;
+import net.minecraft.client.render.entity.LivingEntityRenderer;
+import net.minecraft.client.render.entity.PlayerEntityRenderer;
+import net.minecraft.component.DataComponentTypes;
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.EntityType;
+import net.minecraft.entity.EquipmentSlot;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.damage.DamageSource;
+import net.minecraft.entity.decoration.ArmorStandEntity;
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.sound.SoundCategory;
+import net.minecraft.item.ItemStack;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.network.ServerPlayNetworkHandler;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.sound.SoundEvent;
-import net.minecraft.sound.SoundEvents;
-import net.minecraft.util.Identifier;
+import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
+import net.minecraft.util.Util;
+import net.minecraft.world.World;
+import org.jetbrains.annotations.Nullable;
 import org.lwjgl.glfw.GLFW;
 
-public class WildfireEventHandler {
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.function.Consumer;
 
-	public static final KeyBinding toggleEditGUI = KeyBindingHelper.registerKeyBinding(new KeyBinding("key.wildfire_gender.gender_menu", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_G, "category.wildfire_gender.generic"));
-
-	private static int timer = 0;
-
-	public static void registerClientEvents() {
-
-		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
-			if (!handler.getPlayer().getWorld().isClient()) {
-				//Send all other players to the player who joined. Note: We don't send the player to
-				// other players as that will happen once the player finishes sending themselves to the server
-				PacketSync.sendTo(handler.getPlayer());
-			}
-		});
-
-		ClientEntityEvents.ENTITY_LOAD.register((entity, world) -> {
-			if(!world.isClient) return;
-			if(entity instanceof  AbstractClientPlayerEntity plr) {
-				UUID uuid = plr.getUuid();
-				GenderPlayer aPlr = WildfireGender.getPlayerById(plr.getUuid());
-				if (aPlr == null) {
-					aPlr = new GenderPlayer(uuid);
-					WildfireGender.CLOTHING_PLAYERS.put(uuid, aPlr);
-					WildfireGender.loadGenderInfoAsync(uuid, uuid.equals(MinecraftClient.getInstance().player.getUuid()));
-					return;
-				}
-			}
-			/*if(!world.isClient) return;
-
-			if(entity instanceof AbstractClientPlayerEntity plr) {
-				UUID uuid = plr.getUuid();
-				GenderPlayer aPlr = WildfireGender.getPlayerById(plr.getUuid());
-				if(aPlr == null) {
-					aPlr = new GenderPlayer(uuid);
-					WildfireGender.CLOTHING_PLAYERS.put(uuid, aPlr);
-					WildfireGender.loadGenderInfoAsync(uuid, uuid.equals(MinecraftClient.getInstance().player.getUuid()));
-					return;
-				}
-			}*/
-		});
-
-		ClientTickEvents.END_CLIENT_TICK.register(client -> {
-			if(client.world == null) WildfireGender.CLOTHING_PLAYERS.clear();
-
-			boolean isVanillaServer = !ClientPlayNetworking.canSend(new Identifier(WildfireGender.MODID, "send_gender_info"));
-
-
-			if(!isVanillaServer) {
-				//20 ticks per second / 5 = 4 times per second
-
-				timer++;
-				if (timer >= 5) {
-					try {
-						GenderPlayer aPlr = WildfireGender.getPlayerById(MinecraftClient.getInstance().player.getUuid());
-						if(aPlr == null /*|| !aPlr.needsSync*/) return;
-						PacketSendGenderInfo.send(aPlr);
-					} catch (Exception e) {
-						//e.printStackTrace();
-					}
-					timer = 0;
-				}
-			}
-
-			while (toggleEditGUI.wasPressed()) {
-				client.setScreen(new WildfirePlayerListScreen(client));
-			}
-		});
-
-		//Receive hurt
-
-		ClientPlayNetworking.registerGlobalReceiver(new Identifier(WildfireGender.MODID, "hurt"),
-		(client, handler, buf, responseSender) -> {
-			UUID uuid = buf.readUuid();
-			GenderPlayer.Gender gender = buf.readEnumConstant(GenderPlayer.Gender.class);
-			boolean hurtSounds = buf.readBoolean();
-
-			//Vector3d pos = new Vector3d(buf.readDouble(), buf.readDouble(), buf.readDouble());
-
-			SoundEvent hurtSound = null;
-			if(gender == GenderPlayer.Gender.FEMALE) {
-				hurtSound = Math.random() > 0.5f ? WildfireSounds.FEMALE_HURT1 : WildfireSounds.FEMALE_HURT2;
-			}
-			if(hurtSound == null) return;
-
-			if(hurtSounds) {
-				PlayerEntity ent = MinecraftClient.getInstance().world.getPlayerByUuid(uuid);
-				if (ent != null) {
-					long randomLong = new Random().nextLong(0L,1L);
-					final SoundEvent hurtSound2 = hurtSound;
-					// ensures it's executed in the main thread
-					client.execute(() -> {
-						client.getSoundManager().play(new EntityTrackingSoundInstance(hurtSound2, SoundCategory.PLAYERS, 1f, 1f, ent, randomLong));
-					});
-				}
-			}
-		});
-
-		ClientPlayNetworking.registerGlobalReceiver(new Identifier(WildfireGender.MODID, "sync"),
-		(client, handler, buf, responseSender) -> {
-			PacketSync.handle(client, handler, buf, responseSender);
-		});
+public final class WildfireEventHandler {
+	private WildfireEventHandler() {
+		throw new UnsupportedOperationException();
 	}
 
-	//TODO: Eventually we may want to replace this with a map or something and replace things like drowning sounds with other drowning sounds
-	private final Set<SoundEvent> playerHurtSounds = Set.of(SoundEvents.ENTITY_PLAYER_HURT,
-		SoundEvents.ENTITY_PLAYER_HURT_DROWN,
-		SoundEvents.ENTITY_PLAYER_HURT_FREEZE,
-		SoundEvents.ENTITY_PLAYER_HURT_ON_FIRE,
-		SoundEvents.ENTITY_PLAYER_HURT_SWEET_BERRY_BUSH
-	);
-/*
-	@SubscribeEvent(priority = EventPriority.LOWEST)
-	public void onPlaySound(PlaySoundAtEntityEvent event) {
-		if (playerHurtSounds.contains(event.getSound()) && event.getEntity() instanceof Player p && p.level.isClientSide) {
-			//Cancel as we handle all hurt sounds manually so that we can
-			event.setCanceled(true);
-			SoundEvent soundEvent = event.getSound();
-			if (p.hurtTime == p.hurtDuration && p.hurtTime > 0) {
-				//Note: We check hurtTime == hurtDuration and hurtTime > 0 or otherwise when the server sends a hurt sound to the client
-				// and the client will check itself instead of the player who was damaged.
-				GenderPlayer plr = WildfireGender.getPlayerById(p.getUUID());
-				if (plr != null && plr.hasHurtSounds() && plr.getGender().hasFemaleHurtSounds()) {
-					//If the player who produced the hurt sound is a female sound replace it
-					soundEvent = Math.random() > 0.5f ? WildfireSounds.FEMALE_HURT1 : WildfireSounds.FEMALE_HURT2;
-				}
-			} else if (p.getUUID().equals(Minecraft.getInstance().player.getUUID())) {
-				//Skip playing remote hurt sounds. Note: sounds played via /playsound will not be intercepted
-				// as they are played directly
-				//Note: This might behave slightly strangely if a mod is manually firing a player damage sound
-				// only on the server and not also on the client
-				//TODO: Ideally we would fix that edge case but I find it highly unlikely it will ever actually occur
-				return;
-			}
-			p.level.playLocalSound(p.getX(), p.getY(), p.getZ(), soundEvent, event.getCategory(), event.getVolume(), event.getPitch(), false);
+	private static final KeyBinding CONFIG_KEYBIND;
+	private static final KeyBinding TOGGLE_KEYBIND;
+	private static int timer = 0;
+
+	public static KeyBinding getConfigKeybind() {
+		return CONFIG_KEYBIND;
+	}
+
+	static {
+		if(FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT) {
+			// this has to be wrapped in a lambda to ensure that a dedicated server won't crash during startup
+			// while executing this static block
+			CONFIG_KEYBIND = Util.make(() -> {
+				KeyBinding keybind = new KeyBinding("key.wildfire_gender.gender_menu", GLFW.GLFW_KEY_G, "category.wildfire_gender.generic");
+				KeyBindingHelper.registerKeyBinding(keybind);
+				return keybind;
+			});
+			TOGGLE_KEYBIND = Util.make(() -> {
+				KeyBinding keybind = new KeyBinding("key.wildfire_gender.toggle", GLFW.GLFW_KEY_UNKNOWN, "category.wildfire_gender.generic");
+				KeyBindingHelper.registerKeyBinding(keybind);
+				return keybind;
+			});
+		} else {
+			CONFIG_KEYBIND = null;
+			TOGGLE_KEYBIND = null;
 		}
-	}*/
+	}
+
+	/**
+	 * Register all events applicable to the server-side for both a dedicated server and singleplayer
+	 */
+	public static void registerCommonEvents() {
+		EntityTrackingEvents.START_TRACKING.register(WildfireEventHandler::onBeginTracking);
+		ServerPlayConnectionEvents.DISCONNECT.register(WildfireEventHandler::playerDisconnected);
+		ArmorStandInteractEvents.EQUIP.register(WildfireEventHandler::onEquipArmorStand);
+		ArmorStandInteractEvents.REMOVE.register(BreastDataComponent::removeFromStack);
+	}
+
+	/**
+	 * Register all client-side events
+	 */
+	@Environment(EnvType.CLIENT)
+	public static void registerClientEvents() {
+		ClientEntityEvents.ENTITY_UNLOAD.register(WildfireEventHandler::onEntityUnload);
+		ClientTickEvents.END_CLIENT_TICK.register(WildfireEventHandler::onClientTick);
+		ClientPlayConnectionEvents.DISCONNECT.register(WildfireEventHandler::clientDisconnect);
+		ClientPlayConnectionEvents.JOIN.register(WildfireEventHandler::clientJoin);
+		LivingEntityFeatureRendererRegistrationCallback.EVENT.register(WildfireEventHandler::registerRenderLayers);
+		HudRenderCallback.EVENT.register(WildfireEventHandler::renderHud);
+		ArmorStatsTooltipEvent.EVENT.register(WildfireEventHandler::renderTooltip);
+		EntityHurtSoundEvent.EVENT.register(WildfireEventHandler::onEntityHurt);
+		EntityTickEvent.EVENT.register(WildfireEventHandler::onEntityTick);
+	}
+
+	@Environment(EnvType.CLIENT)
+	private static void renderTooltip(ItemStack item, Consumer<Text> tooltipAppender, @Nullable PlayerEntity player) {
+		if(player == null || !GlobalConfig.INSTANCE.get(GlobalConfig.ARMOR_STAT)) return;
+		var playerConfig = WildfireGender.getPlayerById(player.getUuid());
+		if(playerConfig == null || !playerConfig.getGender().canHaveBreasts()) return;
+
+		var equippableComponent = item.get(DataComponentTypes.EQUIPPABLE);
+		if(equippableComponent != null && equippableComponent.slot() == EquipmentSlot.CHEST) {
+			tooltipAppender.accept(Text.translatable("wildfire_gender.armor.tooltip").formatted(Formatting.LIGHT_PURPLE));
+		}
+	}
+
+	@Environment(EnvType.CLIENT)
+	private static void renderHud(DrawContext context, RenderTickCounter tickCounter) {
+		var textRenderer = Objects.requireNonNull(MinecraftClient.getInstance().textRenderer, "textRenderer");
+		if(MinecraftClient.getInstance().currentScreen instanceof WardrobeBrowserScreen) {
+			return;
+		}
+
+		/*if(MinecraftClient.getInstance().player != null) {
+			PlayerConfig pCfg = WildfireGender.getPlayerById(MinecraftClient.getInstance().player.getUuid());
+			if(pCfg != null) {
+				context.drawText(textRenderer, "Physics Debug", 5, 5, 0xFFFFFF, true);
+				context.drawText(textRenderer, "Position: " + pCfg.getLeftBreastPhysics().getPositionX() + "," + pCfg.getLeftBreastPhysics().getPositionY(), 5, 15, 0xFFFFFF, true);
+				context.drawText(textRenderer, "Breast Size: " + pCfg.getLeftBreastPhysics().getBreastSize(tickCounter.getTickDelta(false)), 5, 35, 0xFFFFFF, true);
+			}
+		}*/
+		boolean shouldShow = switch(GlobalConfig.INSTANCE.get(GlobalConfig.ALWAYS_SHOW_LIST)) {
+			case MOD_UI_ONLY -> false;
+			case TAB_LIST_OPEN -> MinecraftClient.getInstance().options.playerListKey.isPressed();
+			case ALWAYS -> true;
+		};
+		if(!shouldShow) return;
+
+		GuiUtils.drawSyncedPlayers(context, textRenderer, collectPlayerEntries());
+	}
+
+	/**
+	 * Attach breast render layers to players and armor stands
+	 */
+	@Environment(EnvType.CLIENT)
+	private static void registerRenderLayers(EntityType<? extends LivingEntity> entityType, LivingEntityRenderer<?, ?, ?> entityRenderer,
+	                                         LivingEntityFeatureRendererRegistrationCallback.RegistrationHelper registrationHelper,
+	                                         EntityRendererFactory.Context context) {
+		if(entityRenderer instanceof PlayerEntityRenderer playerRenderer) {
+			registrationHelper.register(new GenderLayer<>(playerRenderer));
+			registrationHelper.register(new GenderArmorLayer<>(playerRenderer, context.getEquipmentModelLoader(), context.getEquipmentRenderer()));
+		} else if(entityRenderer instanceof ArmorStandEntityRenderer armorStandRenderer) {
+			registrationHelper.register(new GenderArmorLayer<>(armorStandRenderer, context.getEquipmentModelLoader(), context.getEquipmentRenderer()));
+		}
+	}
+
+	/**
+	 * Remove (non-player) entities from the client cache when they're unloaded
+	 */
+	@Environment(EnvType.CLIENT)
+	private static void onEntityUnload(Entity entity, World world) {
+		// note that we don't attempt to unload players; they're instead only ever unloaded once we leave a world,
+		// or once they disconnect
+		EntityConfig.CACHE.invalidate(entity.getUuid());
+	}
+
+	/**
+	 * Perform various actions that should happen once per client tick, such as syncing client player settings
+	 * to the server.
+	 */
+	@Environment(EnvType.CLIENT)
+	private static void onClientTick(MinecraftClient client) {
+		if(client.world == null || client.player == null) return;
+
+		PlayerConfig clientConfig = WildfireGender.getPlayerById(client.player.getUuid());
+		timer++;
+
+		// Only attempt to sync if the server will accept the packet, and only once every 5 ticks, or around 4 times a second
+		if(ServerboundSyncPacket.canSend() && timer % 5 == 0) {
+			// sendToServer will only actually send a packet if any changes have been made that need to be synced,
+			// or if we haven't synced before.
+			if(clientConfig != null) WildfireSync.sendToServer(clientConfig);
+		}
+
+		if(timer % 40 == 0) {
+			CloudSync.sendNextQueueBatch();
+			if(clientConfig != null) clientConfig.attemptCloudSync();
+		}
+
+		if(TOGGLE_KEYBIND.wasPressed() && client.currentScreen == null) {
+			GlobalConfig.RENDER_BREASTS ^= true;
+		}
+		if(CONFIG_KEYBIND.wasPressed() && client.currentScreen == null) {
+			if(GlobalConfig.INSTANCE.get(GlobalConfig.FIRST_TIME_LOAD) && CloudSync.isAvailable()) {
+				client.setScreen(new WildfireFirstTimeSetupScreen(null, client.player.getUuid()));
+			} else {
+				client.setScreen(new WardrobeBrowserScreen(null, client.player.getUuid()));
+			}
+		}
+	}
+
+	/**
+	 * Clears all caches when the client player disconnects from a server/closes a singleplayer world
+	 */
+	@Environment(EnvType.CLIENT)
+	private static void clientDisconnect(ClientPlayNetworkHandler networkHandler, MinecraftClient client) {
+		WildfireGender.CACHE.invalidateAll();
+		EntityConfig.CACHE.invalidateAll();
+	}
+
+	@Environment(EnvType.CLIENT)
+	private static void clientJoin(ClientPlayNetworkHandler var1, PacketSender var2, MinecraftClient client) {
+		if (client.player == null) return;
+		/*if (WildfireGender.getPlayerById(client.player.getUuid()) == null) {
+			var button = WildfireEventHandler.CONFIG_KEYBIND.getBoundKeyLocalizedText();
+			ToastManager toastManager = client.getToastManager();
+			toastManager.add(new WildfireToast(MinecraftClient.getInstance().textRenderer, Text.translatable("wildfire_gender.player_list.title"), Text.translatable("toast.wildfire_gender.get_started", button), false, 0));
+		}*/
+	}
+
+	/**
+	 * Removes a disconnecting player from the cache on a server
+	 */
+	private static void playerDisconnected(ServerPlayNetworkHandler handler, MinecraftServer server) {
+		WildfireGender.CACHE.invalidate(handler.getPlayer().getUuid());
+	}
+
+	/**
+	 * Send a sync packet when a player enters the render distance of another player
+	 */
+	private static void onBeginTracking(Entity tracked, ServerPlayerEntity syncTo) {
+		if(tracked instanceof PlayerEntity toSync) {
+			PlayerConfig genderToSync = WildfireGender.getPlayerById(toSync.getUuid());
+			if(genderToSync == null) return;
+			// Note that we intentionally don't check if we've previously synced a player with this code path;
+			// because we use entity tracking to sync, it's entirely possible that one player would leave the
+			// tracking distance of another, change their settings, and then re-enter their tracking distance;
+			// we wouldn't sync while they're out of tracking distance, and as such, their settings would be out
+			// of sync until they relog.
+			WildfireSync.sendToClient(syncTo, genderToSync);
+		}
+	}
+
+	/**
+	 * Play the relevant mod hurt sound when a player takes damage
+	 */
+	@Environment(EnvType.CLIENT)
+	private static void onEntityHurt(LivingEntity entity, DamageSource damageSource) {
+		MinecraftClient client = MinecraftClient.getInstance();
+		if(client.player == null || client.world == null) return;
+		if(!(entity instanceof PlayerEntity player) || !player.getWorld().isClient()) return;
+
+		PlayerConfig genderPlayer = WildfireGender.getPlayerById(player.getUuid());
+		if(genderPlayer == null || !genderPlayer.hasHurtSounds()) return;
+
+		SoundEvent hurtSound = genderPlayer.getGender().getHurtSound();
+		if(hurtSound != null) {
+			float pitchVariation = (player.getRandom().nextFloat() - player.getRandom().nextFloat()) * 0.2F;
+			player.playSound(hurtSound, 1f, pitchVariation + genderPlayer.getVoicePitch());
+		}
+	}
+
+	/**
+	 * Tick breast physics on entity tick
+	 */
+	@Environment(EnvType.CLIENT)
+	private static void onEntityTick(LivingEntity entity) {
+		if(EntityConfig.isSupportedEntity(entity)) {
+			EntityConfig cfg = EntityConfig.getEntity(entity);
+			if(entity instanceof ArmorStandEntity) {
+				cfg.readFromStack(entity.getEquippedStack(EquipmentSlot.CHEST));
+			}
+			cfg.tickBreastPhysics(entity);
+		}
+	}
+
+	/**
+	 * Apply player settings to chestplates equipped onto armor stands
+	 */
+	private static void onEquipArmorStand(PlayerEntity player, ItemStack item) {
+		PlayerConfig playerConfig = WildfireGender.getPlayerById(player.getUuid());
+		if(playerConfig == null) {
+			// while we shouldn't have our tag on the stack still, we're still checking to catch any armor
+			// that may still have the tag from older versions, or from potential cross-mod interactions
+			// which allow for removing items from armor stands without calling the vanilla
+			// #equip and/or #onBreak methods
+			BreastDataComponent.removeFromStack(item);
+			return;
+		}
+
+		// Note that we always attach player data to the item stack as a server has no concept of resource packs,
+		// making it impossible to compare against any armor data that isn't registered through the mod API.
+		BreastDataComponent component = BreastDataComponent.fromPlayer(player, playerConfig);
+		if(component != null) {
+			component.write(player.getWorld().getRegistryManager(), item);
+		}
+	}
+
+
+	public static List<PlayerListEntry> collectPlayerEntries() {
+		if(MinecraftClient.getInstance().player == null) return new ArrayList<>();
+		ClientPlayerEntity player = MinecraftClient.getInstance().player;
+		return player.networkHandler.getListedPlayerListEntries().stream()
+				.filter(entry -> !entry.getProfile().getId().equals(player.getUuid()))
+				.filter(entry -> {
+					var cfg = WildfireGender.getPlayerById(entry.getProfile().getId());
+					return cfg != null && cfg.getSyncStatus() != PlayerConfig.SyncStatus.UNKNOWN;
+				})
+				.limit(40L)
+				.toList();
+	}
 }

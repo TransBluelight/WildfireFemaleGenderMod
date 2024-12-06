@@ -12,6 +12,7 @@ classes/
 # idea
 
 .idea/
+!.idea/copyright/
 *.iml
 *.ipr
 *.iws
@@ -19,6 +20,7 @@ classes/
 #Minecraft
 run/
 runV2/
+dependencies/
 
 # vscode
 
