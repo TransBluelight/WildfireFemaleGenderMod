@@ -1,4 +1,4 @@
-name: Build fabric mod with Gradle
+name: Build fabric mod with Gradle NOW
 on:
   push:
     branches: [ Spanish-mexico-translation ]
