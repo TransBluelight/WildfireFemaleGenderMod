@@ -30,10 +30,18 @@ public enum ShowPlayerListMode {
 	TAB_LIST_OPEN,
 	ALWAYS;
 
-	public static final IntFunction<ShowPlayerListMode> BY_ID = ValueLists.createIdToValueFunction(ShowPlayerListMode::ordinal, values(), ValueLists.OutOfBoundsHandling.WRAP);
+	public static final IntFunction<ShowPlayerListMode> BY_ID = ValueLists.createIndexToValueFunction(ShowPlayerListMode::ordinal, values(), ValueLists.OutOfBoundsHandling.WRAP);
 
 	public ShowPlayerListMode next() {
 		return BY_ID.apply(this.ordinal() + 1);
+	}
+
+	public boolean isVisible() {
+		return switch(this) {
+			case MOD_UI_ONLY -> false;
+			case TAB_LIST_OPEN -> MinecraftClient.getInstance().options.playerListKey.isPressed();
+			case ALWAYS -> true;
+		};
 	}
 
 	public Text text() {

@@ -2,13 +2,12 @@
   "schemaVersion": 1,
   "id": "wildfire_gender",
   "version": "${version}+${minecraft_version}",
-  "name": "Wildfire's Female Gender Mod",
-  "description": "Allows players to choose what gender they want to be.",
+  "name": "Female Gender Mod",
+  "description": "Adds extra customization options to the player model by adding breasts for a more feminine appearance",
   "authors": [
     "WildfireRomeo"
   ],
   "contributors": [
-    "Archl",
     "Arcti_cc",
     "BluelightAmelia",
     "celeste",
@@ -34,6 +33,9 @@
     ],
     "client": [
       "com.wildfire.main.WildfireGenderClient"
+    ],
+    "modmenu": [
+      "com.wildfire.compat.ModMenuIntegration"
     ]
   },
   "mixins": [
@@ -43,12 +45,13 @@
   "depends": {
     "fabricloader": ">=0.15.0",
     "fabric-networking-api-v1": "*",
+    "fabric-command-api-v2": "*",
     "fabric-key-binding-api-v1": "*",
     "fabric-lifecycle-events-v1": "*",
     "fabric-rendering-v1": "*",
     "fabric-resource-loader-v0": "*",
     "fabric-registry-sync-v0": "*",
-    "minecraft": ">=1.21.4 <1.22",
+    "minecraft": ">=1.21.9 <1.22",
     "java": ">=21"
   },
   "conflicts": {

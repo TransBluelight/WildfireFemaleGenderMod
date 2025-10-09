@@ -1,5 +1,5 @@
 {
-	"category.wildfire_gender.generic": "Women Gunda Mood",
+	"key.category.wildfire_gender.generic": "Women Gunda Mood",
 	"key.wildfire_gender.gender_menu": "Women Gunda Mano",
 
 	"wildfire_gender.player_list.title": "Women Gunda Mood",
@@ -40,9 +40,6 @@
 
 	"wildfire_gender.slider.bounce": "Crazy Bouncy: %s%%",
 	"wildfire_gender.slider.floppy": "Haw huvy: %s%%",
-	"wildfire_gender.slider.min_bounce": "Wat iz bouncy?",
-	"wildfire_gender.slider.max_bounce": "BALONS!",
-	"wildfire_gender.tooltip.bounce_warning": "Usin 'Crazy Bouncy' 2 haiar valve iz luk badd!",
 
 	"wildfire_gender.cancer_awareness.title": "Hay, It cancor awarniss mouth!"
 }

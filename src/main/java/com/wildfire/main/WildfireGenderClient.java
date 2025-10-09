@@ -20,14 +20,22 @@ package com.wildfire.main;
 
 import com.google.gson.JsonObject;
 import com.wildfire.main.cloud.CloudSync;
+import com.wildfire.main.config.ClientConfig;
+import com.wildfire.main.contributors.Contributors;
 import com.wildfire.main.entitydata.PlayerConfig;
 import com.wildfire.main.networking.WildfireSync;
+import com.wildfire.render.debug.GenderDebugHudEntry;
+import com.wildfire.render.debug.PhysicsDebugHudEntry;
 import com.wildfire.resources.GenderArmorResourceManager;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
+import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.hud.debug.DebugHudEntries;
 import net.minecraft.resource.ResourceType;
+import net.minecraft.text.Text;
 import net.minecraft.util.Util;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -46,6 +54,13 @@ public class WildfireGenderClient implements ClientModInitializer {
 		WildfireSync.registerClient();
 		WildfireEventHandler.registerClientEvents();
 		ResourceManagerHelper.get(ResourceType.CLIENT_RESOURCES).registerReloadListener(GenderArmorResourceManager.INSTANCE);
+		DebugHudEntries.register(GenderDebugHudEntry.SELF, new GenderDebugHudEntry(true));
+		DebugHudEntries.register(GenderDebugHudEntry.OTHER, new GenderDebugHudEntry(false));
+		// only register this in dev env, as this likely isn't going to be very useful anywhere else.
+		if(FabricLoader.getInstance().isDevelopmentEnvironment()) {
+			DebugHudEntries.register(PhysicsDebugHudEntry.ID, new PhysicsDebugHudEntry());
+		}
+		WildfireCommand.init();
 	}
 
 	public static CompletableFuture<@Nullable PlayerConfig> loadGenderInfo(UUID uuid, boolean markForSync, boolean bypassQueue) {
@@ -81,5 +96,14 @@ public class WildfireGenderClient implements ClientModInitializer {
 			}
 			return player;
 		}, LOAD_EXECUTOR);
+	}
+
+	public static @Nullable Text getNametag(UUID uuid) {
+		var clientPlayer = MinecraftClient.getInstance().player;
+		if(ClientConfig.INSTANCE.get(ClientConfig.HIDE_OWN_CONTRIBUTOR_TAG) && clientPlayer != null && uuid.equals(clientPlayer.getUuid())) {
+			return null;
+		}
+
+		return Contributors.getNametag(uuid);
 	}
 }

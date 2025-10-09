@@ -25,7 +25,9 @@ import com.wildfire.api.IGenderArmor;
 import com.wildfire.main.WildfireGender;
 import com.wildfire.main.WildfireHelper;
 import com.wildfire.main.config.Configuration;
-import com.wildfire.main.Gender;
+import com.wildfire.main.config.enums.Gender;
+import com.wildfire.main.config.types.ConfigKey;
+import com.wildfire.main.uvs.UVLayout;
 import com.wildfire.physics.BreastPhysics;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
@@ -33,15 +35,21 @@ import net.minecraft.component.DataComponentTypes;
 import net.minecraft.component.type.NbtComponent;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.PlayerLikeEntity;
 import net.minecraft.entity.decoration.ArmorStandEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
+import net.minecraft.util.Formatting;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 /**
  * <p>A stripped down version of a {@link PlayerConfig player's config}, intended for use with non-player entities.</p>
@@ -68,6 +76,15 @@ public class EntityConfig {
 	protected float bounceMultiplier = Configuration.BOUNCE_MULTIPLIER.getDefault();
 	protected float floppyMultiplier = Configuration.FLOPPY_MULTIPLIER.getDefault();
 
+	protected UVLayout leftBreastUVLayout = Configuration.LEFT_BREAST_UV_LAYOUT.getDefault();
+	protected UVLayout rightBreastUVLayout = Configuration.RIGHT_BREAST_UV_LAYOUT.getDefault();
+
+	protected UVLayout leftBreastOverlayUVLayout = Configuration.LEFT_BREAST_OVERLAY_UV_LAYOUT.getDefault();
+	protected UVLayout rightBreastOverlayUVLayout = Configuration.RIGHT_BREAST_OVERLAY_UV_LAYOUT.getDefault();
+
+	protected UVLayout leftBreastArmorUVLayout = Configuration.LEFT_BREAST_ARMOR_UV_LAYOUT.getDefault();
+	protected UVLayout rightBreastArmorUVLayout = Configuration.RIGHT_BREAST_ARMOR_UV_LAYOUT.getDefault();
+
 	protected float voicePitch = Configuration.VOICE_PITCH.getDefault();
 
 	// note: hurt sounds, armor physics override, and show in armor are not defined here, as they have no relevance
@@ -81,6 +98,9 @@ public class EntityConfig {
 	protected final Breasts breasts;
 	protected boolean jacketLayer = true;
 	protected @Nullable BreastDataComponent fromComponent;
+
+	@ApiStatus.Internal
+	public boolean forceSimplifiedPhysics = false;
 
 	protected EntityConfig(UUID uuid) {
 		this.uuid = uuid;
@@ -124,7 +144,10 @@ public class EntityConfig {
 	 * @return {@code true} if the mod has support for the provided entity
 	 */
 	public static boolean isSupportedEntity(LivingEntity entity) {
-		return entity instanceof PlayerEntity || entity instanceof ArmorStandEntity;
+		// TODO mannequins are not properly supported right now; this method only returns true to indicate that
+		//		our rendering does technically support it, despite the fact that there is no way to properly utilize
+		//		them without using janky workarounds.
+		return entity instanceof PlayerLikeEntity || entity instanceof ArmorStandEntity;
 	}
 
 	/**
@@ -159,6 +182,11 @@ public class EntityConfig {
 		return breastPhysics;
 	}
 
+	/**
+	 * @apiNote See {@link PlayerConfig#getArmorPhysicsOverride()} for the reasoning behind this being {@link ApiStatus.Obsolete @Obsolete}
+	 */
+	@ApiStatus.Obsolete
+	@Environment(EnvType.CLIENT)
 	public boolean getArmorPhysicsOverride() {
 		return false;
 	}
@@ -186,6 +214,29 @@ public class EntityConfig {
 		return rBreastPhysics;
 	}
 
+	public UVLayout getLeftBreastUVLayout() { return this.leftBreastUVLayout; }
+	public boolean updateLeftBreastUVLayout(UVLayout layout) { return updateValue(Configuration.LEFT_BREAST_UV_LAYOUT, layout, v -> this.leftBreastUVLayout = v); }
+	public UVLayout getRightBreastUVLayout() { return this.rightBreastUVLayout; }
+	public boolean updateRightBreastUVLayout(UVLayout layout) { return updateValue(Configuration.RIGHT_BREAST_UV_LAYOUT, layout, v -> this.rightBreastUVLayout = v); }
+
+	public UVLayout getLeftBreastOverlayUVLayout() { return this.leftBreastOverlayUVLayout; }
+	public boolean updateLeftBreastOverlayUVLayout(UVLayout layout) { return updateValue(Configuration.LEFT_BREAST_OVERLAY_UV_LAYOUT, layout, v -> this.leftBreastOverlayUVLayout = v); }
+	public UVLayout getRightBreastOverlayUVLayout() { return this.rightBreastOverlayUVLayout; }
+	public boolean updateRightBreastOverlayUVLayout(UVLayout layout) { return updateValue(Configuration.RIGHT_BREAST_OVERLAY_UV_LAYOUT, layout, v -> this.rightBreastOverlayUVLayout = v); }
+
+	public UVLayout getLeftBreastArmorUVLayout() { return this.leftBreastArmorUVLayout; }
+	public boolean updateLeftBreastArmorUVLayout(UVLayout layout) { return updateValue(Configuration.LEFT_BREAST_ARMOR_UV_LAYOUT, layout, v -> this.leftBreastArmorUVLayout = v); }
+	public UVLayout getRightBreastArmorUVLayout() { return this.rightBreastArmorUVLayout; }
+	public boolean updateRightBreastArmorUVLayout(UVLayout layout) { return updateValue(Configuration.RIGHT_BREAST_ARMOR_UV_LAYOUT, layout, v -> this.rightBreastArmorUVLayout = v); }
+
+	private <VALUE> boolean updateValue(ConfigKey<VALUE> key, VALUE value, Consumer<VALUE> setter) {
+		if (key.validate(value)) {
+			setter.accept(value);
+			return true;
+		}
+		return false;
+	}
+
 	/**
 	 * Only used in the case of {@link ArmorStandEntity armor stands}; returns {@code true} if the player who equipped
 	 * the armor stand's chestplate has their jacket layer visible.
@@ -205,5 +256,23 @@ public class EntityConfig {
 	@Override
 	public String toString() {
 		return "%s(uuid=%s, gender=%s)".formatted(getClass().getCanonicalName(), uuid, gender);
+	}
+
+	public List<String> getDebugInfo() {
+		List<String> info = new ArrayList<>();
+
+		info.add("Gender: " + switch(getGender()) {
+			case FEMALE -> Formatting.LIGHT_PURPLE + "Female";
+			case MALE -> Formatting.BLUE + "Male";
+			case OTHER -> Formatting.GREEN + "Other";
+		});
+		info.add("Breast size: " + getBustSize());
+		info.add("Physics enabled: " + hasBreastPhysics());
+		var breasts = getBreasts();
+		info.add("Uniboob: " + breasts.isUniboob());
+		info.add("Cleavage: " + breasts.getCleavage());
+		info.add("Offsets: (" + breasts.getXOffset() + ", " + breasts.getYOffset() + ", " + breasts.getZOffset() + ")");
+
+		return info;
 	}
 }

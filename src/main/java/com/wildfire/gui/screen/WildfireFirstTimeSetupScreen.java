@@ -18,35 +18,35 @@
 
 package com.wildfire.gui.screen;
 
+import com.google.common.base.Suppliers;
+import com.wildfire.gui.FakeGUIPlayer;
 import com.wildfire.gui.GuiUtils;
 import com.wildfire.gui.WildfireButton;
+import com.wildfire.main.GenderConfigs;
 import com.wildfire.main.WildfireGender;
 import com.wildfire.main.WildfireGenderClient;
-import com.wildfire.main.WildfireHelper;
-import com.wildfire.main.config.GlobalConfig;
+import com.wildfire.main.config.ClientConfig;
 import com.wildfire.main.entitydata.PlayerConfig;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
+import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
-import net.minecraft.client.render.RenderLayer;
-import net.minecraft.client.util.math.MatrixStack;
+import net.minecraft.client.gui.tooltip.Tooltip;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
-import net.minecraft.util.math.MathHelper;
-import org.joml.Quaternionf;
+import net.minecraft.util.math.ColorHelper;
+import org.joml.Vector2f;
 
-import java.text.Normalizer;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.function.Supplier;
 
 @Environment(EnvType.CLIENT)
 public class WildfireFirstTimeSetupScreen extends BaseWildfireScreen {
-
-	//TODO: PROPER TRANSLATIONS
 
 	private static final Text TITLE = Text.translatable("wildfire_gender.first_time_setup.title").formatted(Formatting.UNDERLINE);
 	private static final Text DESCRIPTION = Text.translatable("wildfire_gender.first_time_setup.description");
@@ -57,6 +57,10 @@ public class WildfireFirstTimeSetupScreen extends BaseWildfireScreen {
 
 	private static final Identifier BACKGROUND = Identifier.of(WildfireGender.MODID, "textures/gui/first_time_bg.png");
 
+	private static final UUID keiraUUID = UUID.fromString("372271ab-28f2-44bd-b585-95f43e010c22");
+
+	private final Supplier<FakeGUIPlayer> fakeKeira = Suppliers.memoize(() -> new FakeGUIPlayer("KeiaraFGM", keiraUUID, GenderConfigs.DEFAULT_FEMALE));
+
 	public WildfireFirstTimeSetupScreen(Screen parent, UUID uuid) {
 		super(Text.translatable("wildfire_gender.cloud_settings"), parent, uuid);
 	}
@@ -66,46 +70,52 @@ public class WildfireFirstTimeSetupScreen extends BaseWildfireScreen {
 		int x = this.width / 2;
 		int y = this.height / 2;
 
-		// why must Java be?
+		final var config = ClientConfig.INSTANCE;
 		final var ref = new Object() {
 			WildfireButton no = null;
 		};
 
-		this.addDrawableChild(new WildfireButton(x + 3, y + 74, 128, 20,
-				ENABLE_CLOUD_SYNCING,
-				button -> {
-					var config = GlobalConfig.INSTANCE;
-					//Enable both settings, they can always disable automatic later? TBD
-					config.set(GlobalConfig.CLOUD_SYNC_ENABLED, true);
-					config.set(GlobalConfig.AUTOMATIC_CLOUD_SYNC, true);
-					config.set(GlobalConfig.FIRST_TIME_LOAD, false);
+		addButton(builder -> builder
+				.message(() -> ENABLE_CLOUD_SYNCING)
+				.position(x + 3, y + 74)
+				.size(128, 20)
+				.onPress(button -> {
+					config.set(ClientConfig.CLOUD_SYNC_ENABLED, true);
+					config.set(ClientConfig.AUTOMATIC_CLOUD_SYNC, true);
+					config.set(ClientConfig.FIRST_TIME_LOAD, false);
 
 					button.active = false;
 					button.setMessage(Text.literal("..."));
 					ref.no.setActive(false);
 
-					final var nextScreen = new WardrobeBrowserScreen(null, client.player.getUuid());
+					final var nextScreen = new WardrobeBrowserScreen(null, playerUUID);
 					doInitialSync().thenRun(() -> client.execute(() -> client.setScreen(nextScreen)));
+				})
+				.tooltip(Tooltip.of(Text.empty()
+						.append(Text.translatable("wildfire_gender.first_time_setup.enable.tooltip.line1"))
+						.append("\n\n")
+						.append(Text.translatable("wildfire_gender.first_time_setup.enable.tooltip.line2")))));
+
+		ref.no = addButton(builder -> builder
+				.message(() -> DISABLE_CLOUD_SYNCING)
+				.position(x - 131, y + 74)
+				.size(128, 20)
+				.onPress(button -> {
+					config.set(ClientConfig.CLOUD_SYNC_ENABLED, false);
+					config.set(ClientConfig.AUTOMATIC_CLOUD_SYNC, false);
+					config.set(ClientConfig.FIRST_TIME_LOAD, false);
+
+					client.setScreen(new WardrobeBrowserScreen(null, playerUUID));
 				}));
-
-
-		this.addDrawableChild(ref.no = new WildfireButton(x - 131, y + 74, 128, 20,
-				DISABLE_CLOUD_SYNCING,
-				button -> {
-					var config = GlobalConfig.INSTANCE;
-					config.set(GlobalConfig.CLOUD_SYNC_ENABLED, false);
-					config.set(GlobalConfig.AUTOMATIC_CLOUD_SYNC, false);
-					config.set(GlobalConfig.FIRST_TIME_LOAD, false);
-
-					client.setScreen(new WardrobeBrowserScreen(null, client.player.getUuid()));
-				}));
-
-		super.init();
 	}
 
 	private CompletableFuture<Void> doInitialSync() {
 		var client = Objects.requireNonNull(this.client);
 		var clientUUID = client.player.getUuid();
+
+		WildfireGender.CACHE.asMap().values()
+			.removeIf(config -> config.syncStatus == PlayerConfig.SyncStatus.UNKNOWN);
+
 		return CompletableFuture.runAsync(() -> {
 			var clientConfig = WildfireGender.getOrAddPlayerById(clientUUID);
 			if(!clientConfig.hasLocalConfig()) {
@@ -120,10 +130,11 @@ public class WildfireFirstTimeSetupScreen extends BaseWildfireScreen {
 					WildfireGender.LOGGER.error("Failed to perform initial sync from the cloud", e);
 					return;
 				}
-				PlayerConfig.saveGenderInfo(clientConfig);
+				clientConfig.save();
 				// don't immediately re-sync the data we just got back to the cloud
 				clientConfig.needsCloudSync = false;
 			} else {
+				// simply assume that the config is already loaded, so no need to wait.
 				clientConfig.needsCloudSync = true;
 			}
 		});
@@ -132,7 +143,12 @@ public class WildfireFirstTimeSetupScreen extends BaseWildfireScreen {
 	@Override
 	public void renderBackground(DrawContext ctx, int mouseX, int mouseY, float delta) {
 		this.renderInGameBackground(ctx);
-		ctx.drawTexture(RenderLayer::getGuiTextured, BACKGROUND, (this.width - 274) / 2, (this.height - 200) / 2, 0, 0, 274, 200, 512, 512);
+		ctx.drawTexture(RenderPipelines.GUI_TEXTURED, BACKGROUND, (this.width - 274) / 2, (this.height - 200) / 2, 0, 0, 274, 200, 512, 512);
+	}
+
+	@Override
+	public void tick() {
+		this.fakeKeira.get().tick();
 	}
 
 	@Override
@@ -140,38 +156,27 @@ public class WildfireFirstTimeSetupScreen extends BaseWildfireScreen {
 		if(client == null || client.world == null) return;
 		super.render(ctx, mouseX, mouseY, delta);
 
-		MatrixStack mStack = ctx.getMatrices();
+		var mStack = ctx.getMatrices();
 
 		int x = this.width / 2;
 		int y = this.height / 2;
 
-		GuiUtils.drawCenteredText(ctx, textRenderer, TITLE, x, y - 24, 4210752);
+		GuiUtils.drawCenteredText(ctx, textRenderer, TITLE, x, y - 24, ColorHelper.fullAlpha(4210752));
 
-		GuiUtils.drawCenteredTextWrapped(ctx, textRenderer, Text.literal("Keira Emberlyn:").formatted(Formatting.LIGHT_PURPLE), x + 32, y - 10, (int) ((256-65)), 0xFFFFFF);
+		GuiUtils.drawCenteredTextWrapped(ctx, textRenderer, Text.literal("Keira Emberlyn:").formatted(Formatting.LIGHT_PURPLE), x + 32, y - 10, (int) ((256-65)), ColorHelper.fullAlpha(0xFFFFFF));
 
 		//TODO: Vertical scroll bar for longer text?
-		GuiUtils.drawCenteredTextWrapped(ctx, textRenderer, DESCRIPTION, x + 32, y + 2, (int) ((256-65)), 0xFFFFFF);
+		GuiUtils.drawCenteredTextWrapped(ctx, textRenderer, DESCRIPTION, x + 32, y + 2, (int) ((256-65)), ColorHelper.fullAlpha(0xFFFFFF));
 
+		mStack.pushMatrix();
+		mStack.translate(x, y + 47);
+		mStack.scale(new Vector2f(0.8f, 0.8f));
+		mStack.translate(-x, (-y) - 47);
+		GuiUtils.drawCenteredTextWrapped(ctx, textRenderer, NOTICE, x, y + 68, (int) ((256-10) * 1.2f), ColorHelper.fullAlpha(4210752));
+		mStack.popMatrix();
 
-		mStack.push();
-			mStack.translate(x, y + 47, 0);
-			mStack.scale(0.8f, 0.8f, 1);
-			mStack.translate(-x, -y - 47, 0);
-		GuiUtils.drawCenteredTextWrapped(ctx, textRenderer, NOTICE, x, y + 68, (int) ((256-10) * 1.2f), 4210752);
-		mStack.pop();
-
-		int keiraX = x - 133;
-		int keiraY = y - 12;
-		int keiraW = 60;
-		int keiraH = (int) (keiraW * ((float)KEIRA_HEIGHT / KEIRA_WIDTH));
-
-		ctx.drawTexture(RenderLayer::getGuiTextured, KEIRA_WAVE, keiraX, keiraY, 0, 0, keiraW, keiraH, KEIRA_WIDTH, KEIRA_HEIGHT, KEIRA_WIDTH, KEIRA_HEIGHT);
-
-		/*mStack.push();
-			mStack.translate(keiraX + (keiraW / 2), keiraY + (keiraH / 2), 0);
-			mStack.multiply(new Quaternionf().rotateZ(-25 * MathHelper.RADIANS_PER_DEGREE));
-			ctx.drawTexture(RenderLayer::getGuiTextured, KEIRA_LOOK, -keiraW / 2, -keiraH / 2, 0, 0, keiraW, keiraH, KEIRA_WIDTH, KEIRA_HEIGHT, KEIRA_WIDTH, KEIRA_HEIGHT);
-		mStack.pop();*/
+		var fakeKeira = this.fakeKeira.get().getEntity();
+		GuiUtils.drawEntityOnScreenNoScissor(ctx, 0, 0.4f, x - 132, y - 13, x - 75, y + 60, 50, mouseX, mouseY, fakeKeira);
 	}
 
 	@Override
@@ -181,6 +186,6 @@ public class WildfireFirstTimeSetupScreen extends BaseWildfireScreen {
 
 	@Override
 	public void removed() {
-		GlobalConfig.INSTANCE.save();
+		ClientConfig.INSTANCE.save();
 	}
 }

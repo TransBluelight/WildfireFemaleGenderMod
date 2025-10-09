@@ -24,21 +24,24 @@ import com.mojang.serialization.DynamicOps;
 import com.mojang.serialization.codecs.PrimitiveCodec;
 import com.wildfire.api.IGenderArmor;
 import com.wildfire.api.WildfireAPI;
-import com.wildfire.main.config.FloatConfigKey;
-import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.component.DataComponentTypes;
-import net.minecraft.item.ItemStack;
-import com.wildfire.api.impl.GenderArmor;
+import com.wildfire.main.config.types.FloatConfigKey;
 import com.wildfire.resources.GenderArmorResourceManager;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
+import net.fabricmc.loader.api.FabricLoader;
+import net.minecraft.component.DataComponentTypes;
+import net.minecraft.component.type.AttributeModifiersComponent;
+import net.minecraft.item.ItemStack;
 import net.minecraft.util.TriState;
+import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;
 
+import java.util.Arrays;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 
 public final class WildfireHelper {
+
     private WildfireHelper() {
         throw new UnsupportedOperationException();
     }
@@ -72,14 +75,29 @@ public final class WildfireHelper {
         return (float) ThreadLocalRandom.current().nextDouble(min, (double) max + 1);
     }
 
+    public static float round(float num, float decimalPlaces) {
+        float factor = (float) Math.pow(10, decimalPlaces);
+        return Math.round(num * factor) / factor;
+    }
+
+    public static int[][] deepClone(int[][] src) {
+        if (src == null) return null;
+        int[][] copy = new int[src.length][];
+        for (int i = 0; i < src.length; i++) {
+            copy[i] = (src[i] != null) ? Arrays.copyOf(src[i], src[i].length) : null;
+        }
+        return copy;
+    }
+
+    @SuppressWarnings("removal")
     @Environment(EnvType.CLIENT)
     public static IGenderArmor getArmorConfig(ItemStack stack) {
         if(stack.isEmpty()) {
-            return GenderArmor.EMPTY;
+            return IGenderArmor.EMPTY;
         }
 
         return GenderArmorResourceManager.get(stack).orElseGet(() -> {
-            var fallback = stack.contains(DataComponentTypes.EQUIPPABLE) ? GenderArmor.DEFAULT : GenderArmor.EMPTY;
+            var fallback = stack.contains(DataComponentTypes.EQUIPPABLE) ? IGenderArmor.DEFAULT : IGenderArmor.EMPTY;
             return WildfireAPI.getGenderArmors().getOrDefault(stack.getItem(), fallback);
         });
     }
@@ -97,7 +115,15 @@ public final class WildfireHelper {
         return mod.getMetadata().getVersion().getFriendlyString();
     }
 
+    public static String toFormattedPercent(double value) {
+        return AttributeModifiersComponent.DECIMAL_FORMAT.format(value * 100.0);
+    }
+
     public static boolean onClient() {
         return FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT;
+    }
+
+    public static double snapToStep(double value, double stepSize) {
+        return Math.round(value / stepSize) * stepSize;
     }
 }

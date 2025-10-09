@@ -37,6 +37,8 @@ import net.minecraft.util.math.Vec3d;
 
 public class BreastPhysics {
 
+	public static final float TIGHTNESS_REDUCTION_FACTOR = 0.15F;
+
 	//X-Axis
 	private float bounceVelX = 0, targetBounceX = 0, velocityX = 0, positionX, prePositionX;
 	//Y-Axis
@@ -59,7 +61,7 @@ public class BreastPhysics {
 	}
 
 	private static boolean vehicleSuppressesRotation(Entity vehicle) {
-		return
+		return (
 				// while you aren't able to normally ride chickens in vanilla, it is still possible through
 				// means like /ride, and as chickens attempt to force the rider's body yaw to the same yaw
 				// as the chicken (which is likely intended only for baby zombies), this results in unintended
@@ -68,36 +70,36 @@ public class BreastPhysics {
 				// unsaddled horses (and llamas, which also extend AbstractDonkeyEntity?) also break rotation
 				// physics, despite acting similarly to other entities where the rider's body yaw is allowed to
 				// (somewhat) freely move around
-				|| vehicle instanceof AbstractHorseEntity horseLike && !horseLike.isSaddled()
+				|| vehicle instanceof AbstractHorseEntity horseLike && !horseLike.hasSaddleEquipped()
 				// camels also suffer from largely the same issue as unsaddled horses when sitting or standing up
-				|| vehicle instanceof CamelEntity camel && camel.isStationary();
+				|| vehicle instanceof CamelEntity camel && camel.isStationary()
+		);
 	}
 
 	private static boolean shouldUseVehicleYaw(LivingEntity rider, Entity vehicle) {
-		return vehicle.hasControllingPassenger()
+		return (
+				vehicle.hasControllingPassenger()
 				// boats will typically be caught by the above #hasControllingPassenger() check, but still
 				// special case these to catch any weird modded cases that might arise
 				|| vehicle instanceof BoatEntity
 				// general catch-all for other entities that force the rider's body yaw to match theirs,
 				// such as horses
-				|| vehicle.getBodyYaw() == rider.getBodyYaw();
+				|| vehicle.getBodyYaw() == rider.getBodyYaw()
+		);
 	}
 
-	private static float calcRotation(LivingEntity entity, float bounceIntensity) {
+	private float calcRotation(LivingEntity entity, float bounceIntensity) {
 		Entity vehicle = entity.getVehicle();
 		if(vehicle != null) {
 			if(vehicleSuppressesRotation(vehicle)) {
 				return 0f;
 			} else if(shouldUseVehicleYaw(entity, vehicle)) {
-				if(vehicle instanceof LivingEntity livingVehicle) {
-					return -((livingVehicle.bodyYaw - livingVehicle.prevBodyYaw) / 15f) * bounceIntensity;
-				} else {
-					return -((vehicle.getYaw() - vehicle.prevYaw) / 15f) * bounceIntensity;
-				}
+				float previous = vehicle instanceof LivingEntity living ? living.lastBodyYaw : vehicle.lastYaw;
+				return -((vehicle.getBodyYaw() - previous) / 15f) * bounceIntensity;
 			}
 		}
 
-		return -((entity.bodyYaw - entity.prevBodyYaw) / 15f) * bounceIntensity;
+		return -((entity.bodyYaw - entity.lastBodyYaw) / 15f) * bounceIntensity;
 	}
 
 	// this class cannot be blanket marked as client-side only, as this is referenced in the constructor for EntityConfig;
@@ -105,17 +107,8 @@ public class BreastPhysics {
 	@Environment(EnvType.CLIENT)
 	public void update(LivingEntity entity, IGenderArmor armor) {
 		// always suppress the full physics calculations on armor stands
-		if(entity instanceof ArmorStandEntity) {
-			if(entityConfig.getGender().canHaveBreasts()) {
-				this.breastSize = entityConfig.getBustSize();
-				if(!entityConfig.getArmorPhysicsOverride()) {
-					float tightness = MathHelper.clamp(armor.tightness(), 0, 1);
-					this.breastSize *= 1 - 0.15F * tightness;
-				}
-				this.preBreastSize = this.breastSize;
-			} else {
-				this.preBreastSize = this.breastSize = 0f;
-			}
+		if(entity instanceof ArmorStandEntity || entityConfig.forceSimplifiedPhysics) {
+			simplifiedTick(armor);
 			return;
 		}
 
@@ -125,47 +118,9 @@ public class BreastPhysics {
 		this.preBreastSize = this.breastSize;
 
 		if(this.prePos == null) {
-			this.prePos = entity.getPos();
+			this.prePos = entity.getEntityPos();
 			return;
 		}
-
-		/*{
-			float h = 0; //tickDelta
-			float i = entity.getLeaningPitch(0);
-			float j;
-			float k;
-
-			float bodyXRotation = 0;
-			float bodyYRotation = 0;
-
-			if (entity.isFallFlying()) {
-				j = (float) entity.getRoll() + h;
-				k = MathHelper.clamp(j * j / 100.0F, 0.0F, 1.0F);
-				if (!entity.isUsingRiptide()) {
-					bodyXRotation = k * (-90.0F - entity.getPitch());
-				}
-
-				if (entity instanceof AbstractClientPlayerEntity player) {
-					Vec3d vec3d = entity.getRotationVec(h);
-					Vec3d vec3d2 = player.lerpVelocity(h);
-					double d = vec3d2.horizontalLengthSquared();
-					double e = vec3d.horizontalLengthSquared();
-					if (d > 0.0 && e > 0.0) {
-						double l = (vec3d2.x * vec3d.x + vec3d2.z * vec3d.z) / Math.sqrt(d * e);
-						double m = vec3d2.x * vec3d.z - vec3d2.z * vec3d.x;
-						bodyYRotation = (float) (Math.signum(m) * Math.acos(l));
-					}
-				}
-			} else if (i > 0.0F) {
-				j = entity.isTouchingWater() ? -90.0F - entity.getPitch() : -90.0F;
-				k = MathHelper.lerp(i, 0.0F, j);
-				bodyXRotation = k;
-			} else if (entity.isSleeping()) {
-				bodyXRotation = 90f;
-			} else if (entity.getPose() == EntityPose.CROUCHING) {
-				bodyXRotation = -15f;
-			}
-		}*/ //unused currently, might be later
 
 		float breastWeight = entityConfig.getBustSize() * 1.25f;
 		float targetBreastSize = entityConfig.getBustSize();
@@ -176,13 +131,13 @@ public class BreastPhysics {
 			float tightness = MathHelper.clamp(armor.tightness(), 0, 1);
 			if(entityConfig.getArmorPhysicsOverride()) tightness = 0; //override resistance
 			//Scale breast size by how tight the armor is, clamping at a max adjustment of shrinking by 0.15
-			targetBreastSize *= 1 - 0.15F * tightness;
+			targetBreastSize *= 1 - TIGHTNESS_REDUCTION_FACTOR * tightness;
 		}
 
 		breastSize += (breastSize < targetBreastSize) ? Math.abs(breastSize - targetBreastSize) / 2f : -Math.abs(breastSize - targetBreastSize) / 2f;
 
-		Vec3d motion = entity.getPos().subtract(this.prePos);
-		this.prePos = entity.getPos();
+		Vec3d motion = entity.getEntityPos().subtract(this.prePos);
+		this.prePos = entity.getEntityPos();
 
 		float bounceIntensity = (targetBreastSize * 3f) * Math.round((entityConfig.getBounceMultiplier() * 3) * 100) / 100f;
 		float resistance = MathHelper.clamp(armor.physicsResistance(), 0, 1);
@@ -195,17 +150,37 @@ public class BreastPhysics {
 			bounceIntensity = bounceIntensity * WildfireHelper.randFloat(0.5f, 1.5f);
 		}
 
+		tickMovement(entity, motion, bounceIntensity, breastWeight);
+		tickPose(entity, bounceIntensity);
+		tickVehicle(entity, bounceIntensity, breastWeight);
+		tickArmSwing(entity, bounceIntensity);
+		finishTick();
+	}
+
+	private void simplifiedTick(IGenderArmor armor) {
+		if(entityConfig.getGender().canHaveBreasts()) {
+			this.breastSize = entityConfig.getBustSize();
+			if(!entityConfig.getArmorPhysicsOverride()) {
+				float tightness = MathHelper.clamp(armor.tightness(), 0, 1);
+				this.breastSize *= 1 - TIGHTNESS_REDUCTION_FACTOR * tightness;
+			}
+			this.preBreastSize = this.breastSize;
+		} else {
+			this.preBreastSize = this.breastSize = 0f;
+		}
+	}
+
+	private void tickMovement(final LivingEntity entity, final Vec3d motion, final float bounceIntensity, final float breastWeight) {
 		double vertVelocity = entity.getVelocity().y;
 		// Randomize which side the breast will angle toward when the player jumps/has upward velocity applied to them,
 		// or stops falling
 		if((lastVerticalMoveVelocity <= 0 && vertVelocity > 0) || (lastVerticalMoveVelocity < 0 && vertVelocity == 0)) {
-			randomB = entity.getWorld().random.nextBoolean() ? -1 : 1;
+			randomB = entity.getEntityWorld().random.nextBoolean() ? -1 : 1;
 		}
 		lastVerticalMoveVelocity = vertVelocity;
 
 		this.targetBounceY = (float) motion.y * bounceIntensity;
 		this.targetBounceY += breastWeight;
-		float horizVel = (float) Math.sqrt(Math.pow(motion.x, 2) + Math.pow(motion.z, 2)) * (bounceIntensity);
 
 		this.targetRotVel = calcRotation(entity, bounceIntensity);
 		this.targetRotVel += (float) motion.y * bounceIntensity * randomB;
@@ -215,8 +190,10 @@ public class BreastPhysics {
 		float f2 = (float) entity.getVelocity().lengthSquared() / 0.2F;
 		f2 = f2 * f2 * f2;
 		if(f2 < 1.0F) f2 = 1.0F;
-		this.targetBounceY += MathHelper.cos(entity.limbAnimator.getPos() * 0.6662F + (float)Math.PI) * 0.5F * entity.limbAnimator.getSpeed() * 0.5F / f2;
+		this.targetBounceY += MathHelper.cos(entity.limbAnimator.getAnimationProgress() * 0.6662F + (float)Math.PI) * 0.5F * entity.limbAnimator.getSpeed() * 0.5F / f2;
+	}
 
+	private void tickPose(final LivingEntity entity, final float bounceIntensity) {
 		EntityPose pose = entity.getPose();
 		if(pose != lastPose) {
 			if(pose == EntityPose.CROUCHING || lastPose == EntityPose.CROUCHING) {
@@ -226,68 +203,82 @@ public class BreastPhysics {
 			}
 			lastPose = pose;
 		}
+	}
 
-		//button option for extra entities
-		if(entity.getVehicle() != null) {
-			if(entity.getVehicle() instanceof BoatEntity boat) {
-				int rowTime = (int) boat.lerpPaddlePhase(0, entity.limbAnimator.getPos());
-				int rowTime2 = (int) boat.lerpPaddlePhase(1, entity.limbAnimator.getPos());
+	private void tickVehicle(LivingEntity entity, final float bounceIntensity, final float breastWeight) {
+		switch(entity.getVehicle()) {
+			case BoatEntity boat -> {
+				int rowTime = (int) boat.lerpPaddlePhase(0, entity.limbAnimator.getAnimationProgress());
+				int rowTime2 = (int) boat.lerpPaddlePhase(1, entity.limbAnimator.getAnimationProgress());
 
 				float rotationL = (float) MathHelper.clampedLerp(-(float)Math.PI / 3F, -0.2617994F, (double) ((MathHelper.sin(-rowTime2) + 1.0F) / 2.0F));
 				float rotationR = (float) MathHelper.clampedLerp(-(float)Math.PI / 4F, (float)Math.PI / 4F, (double) ((MathHelper.sin(-rowTime + 1.0F) + 1.0F) / 2.0F));
 				if(rotationL < -1 || rotationR < -0.6f) {
 					this.targetBounceY = bounceIntensity / 3.25f;
 				}
-			} else if(entity.getVehicle() instanceof MinecartEntity cart) {
+			}
+			case MinecartEntity cart -> {
 				float speed = (float) cart.getVelocity().lengthSquared();
 				if(Math.random() * speed < 0.5f && speed > 0.2f) {
 					this.targetBounceY = (Math.random() > 0.5 ? -bounceIntensity : bounceIntensity) / 6f;
 					this.targetBounceY += breastWeight;
 				}
-			} else if(entity.getVehicle() instanceof AbstractHorseEntity horse) {
+			}
+			case AbstractHorseEntity horse -> {
 				float movement = (float) horse.getVelocity().lengthSquared();
 				if(horse.age % clampMovement(movement) == 5 && movement > 0.05f) {
 					this.targetBounceY = bounceIntensity / 4f;
 					this.targetBounceY += breastWeight;
 				}
-			} else if(entity.getVehicle() instanceof PigEntity pig) {
+			}
+			case PigEntity pig -> {
 				float movement = (float) pig.getVelocity().lengthSquared();
 				if(pig.age % clampMovement(movement) == 5 && movement > 0.002f) {
 					this.targetBounceY = (bounceIntensity * MathHelper.clamp(movement * 75, 0.1f, 1f)) / 4f;
 					this.targetBounceY += breastWeight;
 				}
-			} else if(entity.getVehicle() instanceof StriderEntity strider) {
+			}
+			case StriderEntity strider -> {
 				double heightOffset = (double)strider.getHeight() - 0.19
-						+ (double)(0.12F * MathHelper.cos(strider.limbAnimator.getPos() * 1.5f)
+						+ (double)(0.12F * MathHelper.cos(strider.limbAnimator.getAnimationProgress() * 1.5f)
 						* 2F * Math.min(0.25F, strider.limbAnimator.getSpeed()));
 				this.targetBounceY += ((float) (heightOffset * 3f) - 4.5f) * bounceIntensity;
 			}
+			case null, default -> {}
 		}
+	}
 
+	private void tickArmSwing(LivingEntity entity, final float bounceIntensity) {
 		int swingDuration = entity.getHandSwingDuration();
 		// Require that either the current swing duration is 2 ticks, or the swing duration from the previous tick is,
 		// as any faster and the arm effectively doesn't swing at all; we check the previous tick's swing duration for
 		// reasons explained later on in this block
-		if((swingDuration > 1 || lastSwingDuration > 1) && pose != EntityPose.SLEEPING) {
-			float amplifier = 0f;
+		if((swingDuration > 1 || lastSwingDuration > 1) && entity.getPose() != EntityPose.SLEEPING) {
+			float rawAmplifier = 0f;
 			if(swingDuration < 6) {
-				amplifier = 0.15f * (6 - swingDuration);
+				rawAmplifier = 0.15f * (6 - swingDuration);
 			} else if(swingDuration > 6) {
-				amplifier = -0.067f * (swingDuration - 6);
+				rawAmplifier = -0.055f * (swingDuration - 6);
 			}
-			// Cap our amplifier at the swing durations of Mining Fatigue III/Haste II
-			amplifier = MathHelper.clamp(1 + amplifier, 0.6f, 1.3f);
+			// Cap our amplifier at the swing durations of Mining Fatigue IV/Haste II
+			float amplifier = MathHelper.clamp(1 + rawAmplifier, 0.6f, 1.3f);
+
+			Arm swingingArm = entity.preferredHand == Hand.MAIN_HAND ? entity.getMainArm() : entity.getMainArm().getOpposite();
+			int swingTickDelta = entity.handSwingTicks - lastSwingTick;
+			float swingProgress = distanceFromMedian(0, lastSwingDuration, MathHelper.clamp(lastSwingTick, 0, lastSwingDuration));
+			Arm swingingToward = swingProgress > -0.2f ? swingingArm.getOpposite() : swingingArm;
 
 			// consistently apply even with short swing durations, such as with haste
 			int everyNthTick = MathHelper.clamp(swingDuration - 1, 1, 5);
 			if(entity.handSwinging && entity.age % everyNthTick == 0) {
-				float hasteMult = MathHelper.clamp(everyNthTick / 5f, 0.4f, 1f);
-				this.targetBounceY += (Math.random() > 0.5 ? -0.25f : 0.25f) * amplifier * bounceIntensity * hasteMult;
+				this.targetBounceY += (Math.random() > 0.5 ? -0.25f : 0.25f) * amplifier * bounceIntensity;
+				// The regular amplifier here makes this look relatively unnatural at high levels of mining fatigue,
+				// so instead we're increasing the potency of negative amplifiers (and decreasing positive amplifiers),
+				// and clamping this at a lower range than normal.
+				// The effective range of these numbers is around the swing durations of Mining Fatigue V to Haste II.
+				var xAmp = MathHelper.clamp(1 + (rawAmplifier * (rawAmplifier < 0 ? 1.625f : 0.8f)), 0.25f, 1.225f);
+				this.targetBounceX = (0.325f * xAmp * bounceIntensity) * (swingingArm == Arm.RIGHT ? -1f : 1f);
 			}
-
-			int swingTickDelta = entity.handSwingTicks - lastSwingTick;
-			float swingProgress = distanceFromMedian(0, lastSwingDuration, MathHelper.clamp(lastSwingTick, 0, lastSwingDuration));
-			Arm swingingArm = entity.preferredHand == Hand.MAIN_HAND ? entity.getMainArm() : entity.getMainArm().getOpposite();
 
 			if(swingTickDelta < 0 && lastSwingTick != lastSwingDuration - 1) {
 				// Add a bit of counter-rotation back toward the currently swinging arm if the previous arm swing
@@ -295,11 +286,10 @@ public class BreastPhysics {
 				// Note that we don't check if the player's arm is currently swinging here to account for cases like
 				// haste being used to reset a player's swing; one notable example of this is Wynncraft's spell casting,
 				// which applies haste to the player when a spell is successfully cast.
-				this.targetRotVel += (swingingArm == Arm.RIGHT ? -2.5f : 2.5f) * Math.abs(swingProgress) * bounceIntensity;
+				this.targetRotVel += (swingingArm == Arm.RIGHT ? -4f : 4f) * Math.abs(swingProgress) * bounceIntensity;
 			} else if(entity.handSwinging && swingDuration > 1) {
 				// Otherwise if the swing animation isn't interrupted, attempt to rotate slightly counter to the
 				// direction that the body is currently moving
-				Arm swingingToward = swingProgress > 0f ? swingingArm.getOpposite() : swingingArm;
 				this.targetRotVel += (swingingToward == Arm.RIGHT ? -0.2f : 0.2f) * amplifier * bounceIntensity;
 			}
 			lastSwingTick = entity.handSwingTicks;
@@ -308,18 +298,13 @@ public class BreastPhysics {
 			lastSwingTick = 0;
 		}
 		lastSwingDuration = Math.max(swingDuration, 1);
+	}
 
-		/*if(plr.getPose() == EntityPose.SWIMMING) {
-			//System.out.println(1 - plr.getRotationVec(tickDelta).getY());
-			rotationMultiplier = 1 - (float) plr.getRotationVec(tickDelta).getY();
-		}*/
-
-
-		float percent =  entityConfig.getFloppiness();
-		float bounceAmount = 0.45f * (1f - percent) + 0.15f; //0.6f * percent - 0.15f;
+	private void finishTick() {
+		float percent = entityConfig.getFloppiness();
+		float bounceAmount = 0.45f * (1f - percent) + 0.15f;
 		bounceAmount = MathHelper.clamp(bounceAmount, 0.15f, 0.6f);
 		float delta = 2.25f - bounceAmount;
-		//if(plr.isInWater()) delta = 0.75f - (1f * bounceAmount); //water resistance
 
 		float distanceFromMin = Math.abs(bounceVel + 1.5f) * 0.5f;
 		float distanceFromMax = Math.abs(bounceVel - 2.65f) * 0.5f;
@@ -353,11 +338,6 @@ public class BreastPhysics {
 			this.positionY = 1.5f;
 			this.velocity = 0;
 		}
-
-	}
-
-	public float getBreastSize(float partialTicks) {
-		return MathHelper.lerp(partialTicks, preBreastSize, breastSize);
 	}
 
 	public float getPrePositionY() {
@@ -381,6 +361,13 @@ public class BreastPhysics {
 		return this.wfg_preBounceRotation;
 	}
 
+	public float getBreastSize() {
+		return this.breastSize;
+	}
+	public float getPreBreastSize() {
+		return this.preBreastSize;
+	}
+
 	private int clampMovement(float movement) {
 		return Math.max((int) (10 - movement*2f), 1);
 	}
@@ -388,8 +375,8 @@ public class BreastPhysics {
 	/**
 	 * Return the distance from the median of the two provided boundary points from a given point
 	 *
-	 * @param p1    Lower boundary point
-	 * @param p2    Upper boundary point
+	 * @param p1    Lower boundary point (inclusive)
+	 * @param p2    Upper boundary point (inclusive)
 	 * @param point The target point within the range of {@code p1} and {@code p2} to get the distance from the median of
 	 *
 	 * @return A {@code float} indicating how far the provided {@code point} is from the median of the two boundary
